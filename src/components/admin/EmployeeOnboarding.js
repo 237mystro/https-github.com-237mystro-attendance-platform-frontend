@@ -16,8 +16,7 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions,
-  IconButton
+  DialogActions
 } from '@mui/material';
 import { ContentCopy } from '@mui/icons-material';
 import { apiRequest } from '../../utils/api';

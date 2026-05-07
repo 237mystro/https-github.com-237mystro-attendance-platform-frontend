@@ -71,7 +71,7 @@ const EmployeeManagement = () => {
         setError(data.message || 'Failed to fetch employees');
       }
     } catch (err) {
-      setError('Network error. Please try again.');
+      setError(err.message || 'Network error. Please try again.');
       console.error('Fetch employees error:', err);
     } finally {
       setLoading(false);
@@ -209,8 +209,10 @@ const EmployeeManagement = () => {
         setError(data.message || 'Operation failed');
       }
     } catch (err) {
-      setError('Network error. Please try again.');
+      setError(err.message || 'Network error. Please try again.');
       console.error('Submit error:', err);
+      // Refresh the list — the server may have created the employee before failing (e.g. email error)
+      fetchEmployees();
     }
   };
 
@@ -246,7 +248,7 @@ const EmployeeManagement = () => {
           setError(data.message || 'Failed to delete employee');
         }
       } catch (err) {
-        setError('Network error. Please try again.');
+        setError(err.message || 'Network error. Please try again.');
         console.error('Delete error:', err);
       }
     }
@@ -341,11 +343,11 @@ const EmployeeManagement = () => {
                   <TableCell>{employee.salary.toLocaleString()}</TableCell>
                   <TableCell>{employee.payPerShift.toLocaleString()}</TableCell>
                   <TableCell>
-                    <Chip 
-                      label={`${employee.shifts || 0} shifts`} 
-                      size="small" 
-                      color="primary" 
-                      variant="outlined" 
+                    <Chip
+                      label={`${employee.shifts?.length || 0} shifts`}
+                      size="small"
+                      color="primary"
+                      variant="outlined"
                     />
                   </TableCell>
                   <TableCell>

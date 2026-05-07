@@ -35,7 +35,7 @@ const EmployeeOnboarding = () => {
       await onboardEmployee(email, name, phone, momoNumber, position);
       navigate('/employee/dashboard');
     } catch (err) {
-      setError('Failed to onboard employee. Please check your information.');
+      setError(err.message || 'Failed to onboard employee. Please check your information.');
     }
     
     setLoading(false);

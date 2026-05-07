@@ -33,6 +33,7 @@ import {
   Alert as MuiAlert
 } from '@mui/material';
 import { Add, Edit, Delete, ExpandMore, AddCircle, RemoveCircle, ContentCopy } from '@mui/icons-material';
+import { apiRequest } from '../../utils/api';
 
 const EmployeeManagement = () => {
   const [employees, setEmployees] = useState([]);
@@ -43,6 +44,7 @@ const EmployeeManagement = () => {
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [showTempPassword, setShowTempPassword] = useState(false);
   const [tempPassword, setTempPassword] = useState('');
+  const [tempCredentials, setTempCredentials] = useState({ email: '', password: '' });
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -61,13 +63,7 @@ const EmployeeManagement = () => {
       setLoading(true);
       setError('');
       
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/employees`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      
-      const data = await response.json();
+      const data = await apiRequest('/employees');
       
       if (data.success) {
         setEmployees(data.data);
@@ -167,26 +163,27 @@ const EmployeeManagement = () => {
       };
       
       const url = editingEmployee 
-        ? `${process.env.REACT_APP_API_URL}/employees/${editingEmployee._id}`
-        : `${process.env.REACT_APP_API_URL}/employees`;
+        ? `/employees/${editingEmployee._id}`
+        : '/employees';
         
       const method = editingEmployee ? 'PUT' : 'POST';
       
-      const response = await fetch(url, {
+      const data = await apiRequest(url, {
         method,
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(submitData)
       });
-      
-      const data = await response.json();
       
       if (data.success) {
         if (!editingEmployee && data.data.temporaryPassword) {
           // Show temporary password for new employees
           setTempPassword(data.data.temporaryPassword);
+          setTempCredentials({
+            email: submitData.email,
+            password: data.data.temporaryPassword
+          });
           setShowTempPassword(true);
         }
         
@@ -238,14 +235,9 @@ const EmployeeManagement = () => {
   const handleDelete = async (employeeId) => {
     if (window.confirm('Are you sure you want to delete this employee? This will also delete their account and all associated data.')) {
       try {
-        const response = await fetch(`${process.env.REACT_APP_API_URL}/employees/${employeeId}`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
+        const data = await apiRequest(`/employees/${employeeId}`, {
+          method: 'DELETE'
         });
-        
-        const data = await response.json();
         
         if (data.success) {
           fetchEmployees(); // Refresh the list
@@ -277,6 +269,7 @@ const EmployeeManagement = () => {
     setOpen(true);
     setShowTempPassword(false);
     setTempPassword('');
+    setTempCredentials({ email: '', password: '' });
   };
 
   // Close dialog
@@ -286,6 +279,7 @@ const EmployeeManagement = () => {
     setError('');
     setShowTempPassword(false);
     setTempPassword('');
+    setTempCredentials({ email: '', password: '' });
   };
 
   // Close snackbars
@@ -295,13 +289,14 @@ const EmployeeManagement = () => {
   };
 
   return (
-    <Container maxWidth="lg">
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4">Employee Management</Typography>
-        <Button 
-          variant="contained" 
-          startIcon={<Add />} 
+    <Container maxWidth="lg" sx={{ px: { xs: 1.5, sm: 3 }, py: { xs: 2, sm: 3 } }}>
+      <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, gap: 1.5, mb: 3 }}>
+        <Typography variant="h5" fontWeight={700}>Employee Management</Typography>
+        <Button
+          variant="contained"
+          startIcon={<Add />}
           onClick={handleAddNew}
+          sx={{ alignSelf: { xs: 'flex-start', sm: 'auto' } }}
         >
           Add Employee
         </Button>
@@ -324,8 +319,8 @@ const EmployeeManagement = () => {
           <CircularProgress />
         </Box>
       ) : (
-        <TableContainer component={Paper}>
-          <Table>
+        <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
+          <Table sx={{ minWidth: 600 }}>
             <TableHead>
               <TableRow>
                 <TableCell>Name</TableCell>
@@ -582,16 +577,16 @@ const EmployeeManagement = () => {
           
           <Box sx={{ p: 2, bgcolor: 'grey.100', borderRadius: 1, mb: 2 }}>
             <Typography variant="body1">
-              <strong>Email:</strong> {formData.email}
+              <strong>Email:</strong> {tempCredentials.email}
             </Typography>
             <Typography variant="body1">
-              <strong>Temporary Password:</strong> {tempPassword}
+              <strong>Temporary Password:</strong> {tempCredentials.password || tempPassword}
             </Typography>
           </Box>
           
           <Button 
             startIcon={<ContentCopy />} 
-            onClick={() => copyToClipboard(` ${tempPassword}`)}
+            onClick={() => copyToClipboard(`Email: ${tempCredentials.email}\nTemporary Password: ${tempCredentials.password || tempPassword}`)}
             variant="outlined"
             fullWidth
           >

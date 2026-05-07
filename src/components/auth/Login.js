@@ -1,194 +1,189 @@
-// src/components/auth/Login.js
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { 
-  Container, 
-  Typography, 
-  TextField, 
-  Button, 
-  Box, 
-  Paper, 
-  FormControlLabel, 
-  Checkbox, 
-  Divider,
+import {
   Alert,
-  CircularProgress
+  Box,
+  Button,
+  Checkbox,
+  CircularProgress,
+  FormControlLabel,
+  Stack,
+  TextField,
+  Typography
 } from '@mui/material';
+import { useAuth } from '../../contexts/AuthContext';
+import { apiRequest } from '../../utils/api';
+import AuthLayout from './AuthLayout';
 
 const Login = () => {
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => window.localStorage.getItem('autopayroll-last-email') || '');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { setSession } = useAuth();
 
-const handleSubmit = async (e) => {
-  e.preventDefault();
-  
-  // Frontend validation
-  if (!email || !password) {
-    setError('Please fill in all fields');
-    return;
-  }
-  
-  if (!/\S+@\S+\.\S+/.test(email)) {
-    setError('Please enter a valid email address');
-    return;
-  }
-  
-  if (password.length < 6) {
-    setError('Password must be at least 6 characters');
-    return;
-  }
+  const handleSubmit = async (event) => {
+    event.preventDefault();
 
-  try {
-    setError('');
-    setLoading(true);
-    
-    // Determine API base URL
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000/api/v1';
-    
-    console.log('Making request to:', `${apiUrl}/auth/login`);
-    
-    const response = await fetch(`${apiUrl}/auth/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        email: email.trim(),
-        password: password.trim()
-      })
-    });
-    
-    console.log('Response status:', response.status);
-    
-    // Check if response has content
-    const responseText = await response.text();
-    console.log('Raw response:', responseText);
-    
-    // Handle empty response
-    if (!responseText) {
-      throw new Error('Empty response from server');
+    if (!email.trim() || !password) {
+      setError('Please enter both your email address and password.');
+      return;
     }
-    
-    // Try to parse JSON
-    let data;
+
+    if (!/\S+@\S+\.\S+/.test(email)) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+
     try {
-      data = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('JSON parse error:', parseError);
-      throw new Error('Invalid response from server');
-    }
-    
-    console.log('Parsed response:', data);
-    
-    if (data.success) {
-      // Store token and user data
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
-      
-      // Redirect based on user role
-      if (data.user.role === 'employee') {
-        navigate('/employee/dashboard');
-      } else {
-        navigate('/admin/dashboard');
+      setLoading(true);
+      setError('');
+
+      const data = await apiRequest('/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        auth: false,
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password: password.trim()
+        })
+      });
+
+      if (!data.success) {
+        setError(data.message || 'Invalid email or password.');
+        return;
       }
-    } else {
-      setError(data.message || 'Invalid email or password');
-    }
-  } catch (err) {
-    console.error('Login error:', err);
-    
-    // Handle different types of errors
-    if (err instanceof TypeError) {
-      if (err.message.includes('fetch') || err.message.includes('Failed to fetch')) {
-        setError('Cannot connect to server. Please make sure the backend is running on port 5000.');
+
+      setSession(data.token, data.user);
+
+      if (rememberMe) {
+        window.localStorage.setItem('autopayroll-last-email', email.trim().toLowerCase());
       } else {
-        setError('Network error: ' + err.message);
+        window.localStorage.removeItem('autopayroll-last-email');
       }
-    } else if (err.message.includes('JSON')) {
-      setError('Invalid response from server. Please try again.');
-    } else {
-      setError('An unexpected error occurred. Please try again.');
+
+      const role = data.user?.role;
+      if (role === 'employee') navigate('/employee/dashboard');
+      else if (role === 'branch_manager' || role === 'branch_hr') navigate('/branch/dashboard');
+      else navigate('/admin/dashboard');
+    } catch (err) {
+      if (err instanceof TypeError && (err.message.includes('fetch') || err.message.includes('Failed to fetch'))) {
+        setError('Cannot connect to the server right now. Please confirm the backend is running.');
+      } else {
+        setError(err.message || 'Unable to sign in right now.');
+      }
+    } finally {
+      setLoading(false);
     }
-  }
-  
-  setLoading(false);
-};
+  };
 
   return (
-    <Container component="main" maxWidth="xs">
-      <Paper elevation={3} sx={{ mt: 8, p: 4 }}>
-        <Typography component="h1" variant="h5" align="center" sx={{ mb: 3 }}>
-          Sign in to AutoPayroll
-        </Typography>
-        
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-        
-        <Box component="form" onSubmit={handleSubmit} noValidate>
-          <TextField
-            margin="normal"
-            required
-            fullWidth
-            id="email"
-            label="Email Address"
-            name="email"
-            autoComplete="email"
-            autoFocus
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            error={!!error && !email}
-            helperText={!!error && !email ? 'Email is required' : ''}
-          />
-          <TextField
-            margin="normal"
-            required
-            fullWidth
-            name="password"
-            label="Password"
-            type="password"
-            id="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            error={!!error && !password}
-            helperText={!!error && !password ? 'Password is required' : ''}
-          />
+    <AuthLayout
+      eyebrow="Welcome Back"
+      title="Sign in to your AutoPayroll workspace."
+      subtitle="Access attendance, payroll, announcements, and employee operations from one polished dashboard."
+    >
+      <Stack spacing={2.25} component="form" onSubmit={handleSubmit}>
+        {error && <Alert severity="error">{error}</Alert>}
+
+        <TextField
+          label="Work email"
+          fullWidth
+          autoFocus
+          autoComplete="email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+        />
+
+        <TextField
+          label="Password"
+          type="password"
+          fullWidth
+          autoComplete="current-password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+        />
+
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: { xs: 'flex-start', sm: 'center' },
+            justifyContent: 'space-between',
+            gap: 1.5,
+            flexDirection: { xs: 'column', sm: 'row' }
+          }}
+        >
           <FormControlLabel
             control={
-              <Checkbox 
-                value="remember" 
-                color="primary" 
+              <Checkbox
                 checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
+                onChange={(event) => setRememberMe(event.target.checked)}
               />
             }
-            label="Remember me"
+            label="Remember my email"
           />
-          <Button
-            type="submit"
-            fullWidth
-            variant="contained"
-            sx={{ mt: 3, mb: 2, py: 1.5 }}
-            disabled={loading}
+
+          <Typography
+            component={Link}
+            to="/forgot-password"
+            sx={{
+              color: '#246bce',
+              textDecoration: 'none',
+              fontWeight: 700,
+              fontSize: 14
+            }}
           >
-            {loading ? <CircularProgress size={24} /> : 'Sign In'}
-          </Button>
-          
-          <Divider sx={{ my: 2 }}>or</Divider>
-          
-          <Box sx={{ textAlign: 'center' }}>
-            <Link to="/register" style={{ textDecoration: 'none' }}>
-              <Typography variant="body2" color="primary">
-                New Business? Create Account
-              </Typography>
-            </Link>
-          </Box>
+            Forgot password?
+          </Typography>
         </Box>
-      </Paper>
-    </Container>
+
+        <Button
+          type="submit"
+          variant="contained"
+          size="large"
+          disabled={loading}
+          sx={{
+            py: 1.45,
+            borderRadius: 3,
+            textTransform: 'none',
+            fontWeight: 700,
+            background: 'linear-gradient(135deg,#0f4c81,#246bce)',
+            boxShadow: '0 14px 30px rgba(36,107,206,0.24)'
+          }}
+        >
+          {loading ? <CircularProgress size={22} color="inherit" /> : 'Sign In'}
+        </Button>
+
+        <Box
+          sx={{
+            p: 2,
+            borderRadius: 3,
+            bgcolor: '#eff6ff',
+            border: '1px solid rgba(36,107,206,0.1)'
+          }}
+        >
+          <Typography sx={{ color: '#0f172a', fontWeight: 700, fontSize: 14 }}>
+            New business?
+          </Typography>
+          <Typography sx={{ color: '#475569', fontSize: 14, mt: 0.5, mb: 1.25 }}>
+            Create your company workspace and start onboarding employees in minutes.
+          </Typography>
+          <Typography
+            component={Link}
+            to="/register"
+            sx={{
+              color: '#246bce',
+              textDecoration: 'none',
+              fontWeight: 700
+            }}
+          >
+            Create an account
+          </Typography>
+        </Box>
+      </Stack>
+    </AuthLayout>
   );
 };
 

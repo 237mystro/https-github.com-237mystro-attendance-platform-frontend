@@ -22,6 +22,8 @@ import {
   Description,
   CheckCircle
 } from '@mui/icons-material';
+import { apiRequest } from '../../utils/api';
+import { getStoredUser } from '../../utils/authSession';
 
 const EmployeeMessaging = () => {
   const [messages, setMessages] = useState([]);
@@ -39,14 +41,7 @@ const EmployeeMessaging = () => {
       setLoading(true);
       setError('');
       
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000/api/v1'}/messages`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      const data = await response.json();
+      const data = await apiRequest('/messages');
       
       if (data.success) {
         setMessages(data.messages);
@@ -116,20 +111,16 @@ const EmployeeMessaging = () => {
       setError('');
       setSending(true);
       
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000/api/v1'}/messages`, {
+      const data = await apiRequest('/messages', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           content: newMessage.trim(),
           attachments: attachments
         })
       });
-      
-      const data = await response.json();
       
       if (data.success) {
         setNewMessage('');
@@ -189,7 +180,10 @@ const EmployeeMessaging = () => {
           
           <List>
             {messages.map((message, index) => {
-              const isCurrentUser = message.sender._id === JSON.parse(localStorage.getItem('user')).id;
+              const user = getStoredUser() || {};
+              const currentUserId = user.id || user._id;
+              const senderId = message.sender?._id || message.sender?.id || message.sender;
+              const isCurrentUser = senderId === currentUserId;
               const showDate = index === 0 || 
                 new Date(messages[index-1].createdAt).toDateString() !== 
                 new Date(message.createdAt).toDateString();

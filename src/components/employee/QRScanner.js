@@ -1,567 +1,757 @@
-// src/components/employee/QRScanner.js
-import React, { useState, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  Alert,
+  Avatar,
   Box,
   Button,
-  Typography,
   Card,
   CardContent,
-  Alert,
+  Chip,
   CircularProgress,
   Dialog,
-  DialogTitle,
-  DialogContent,
   DialogActions,
-  Chip,
-  Avatar,
+  DialogContent,
+  DialogTitle,
+  Divider,
   List,
   ListItem,
   ListItemAvatar,
   ListItemText,
-  Divider
+  Typography
 } from '@mui/material';
 import {
-  QrCodeScanner,
-  LocationOn,
-  Warning,
-  CheckCircle,
-  ErrorOutline,
-  Schedule,
   AccessTime,
-  Person,
   CameraAlt,
+  CheckCircle,
+  Fingerprint,
+  FaceRetouchingNatural,
+  LocationOn,
+  QrCodeScanner,
+  Replay,
+  Schedule,
   VideocamOff
 } from '@mui/icons-material';
 import Webcam from 'react-webcam';
 import jsQR from 'jsqr';
+import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
+import { apiRequest } from '../../utils/api';
+import { calculateDistance, formatDistance, getUserLocation } from '../../utils/locationVerification';
+import { generateDeviceFingerprint, getBiometricLabel } from '../../utils/deviceFingerprint';
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+const isBiometricSupported = async () => {
+  if (!window.PublicKeyCredential) return false;
+  try {
+    return await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+  } catch {
+    return false;
+  }
+};
 
 const QRScanner = () => {
-  const [scanning, setScanning] = useState(false);
-  const [location, setLocation] = useState(null);
-  const [locationStatus, setLocationStatus] = useState('pending'); // pending, verifying, verified, failed
-  const [locationError, setLocationError] = useState('');
-  const [qrData, setQrData] = useState(null);
-  const [checkInStatus, setCheckInStatus] = useState('idle'); // idle, processing, success, error
-  const [verificationResult, setVerificationResult] = useState(null);
-  const [openConfirmation, setOpenConfirmation] = useState(false);
-  const [shiftInfo, setShiftInfo] = useState(null);
-  const navigate = useNavigate();
-  const webcamRef = useRef(null);
-  const intervalRef = useRef(null);
+  // Location + geofence state
+  const [location, setLocation]               = useState(null);
+  const [locationStatus, setLocationStatus]   = useState('pending');
+  const [locationError, setLocationError]     = useState('');
+  const [geofence, setGeofence]               = useState(null);
+  const [distance, setDistance]               = useState(null);
 
-  // Get user's current location
-  const getUserLocation = () => {
-    return new Promise((resolve, reject) => {
-      if (!navigator.geolocation) {
-        reject(new Error('Geolocation is not supported by your browser'));
+  // Method selection
+  const [methodSelected, setMethodSelected]   = useState(null); // null | 'qr' | 'biometric'
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+
+  // QR scanning
+  const [scanning, setScanning]               = useState(false);
+  const [qrData, setQrData]                   = useState(null);
+  const [shiftInfo, setShiftInfo]             = useState(null);
+
+  // Selfie / confirmation dialog
+  const [openConfirmation, setOpenConfirmation] = useState(false);
+  const [selfieStep, setSelfieStep]           = useState(false);
+  const [selfieImage, setSelfieImage]         = useState(null);
+
+  // Biometric flow
+  const [biometricStep, setBiometricStep]     = useState('idle'); // idle | registering | authenticating | success | error
+  const [biometricError, setBiometricError]   = useState('');
+  const [showBiometricDialog, setShowBiometricDialog] = useState(false);
+  const [needsRegistration, setNeedsRegistration] = useState(false);
+
+  // Shared
+  const [checkInStatus, setCheckInStatus]     = useState('idle'); // idle | processing | success | error
+  const [deviceFingerprint, setDeviceFingerprint] = useState('');
+
+  const navigate     = useNavigate();
+  const webcamRef    = useRef(null);
+  const selfieWebcamRef = useRef(null);
+  const intervalRef  = useRef(null);
+
+  // ── On mount: check biometric support + generate device fingerprint ────────
+  useEffect(() => {
+    isBiometricSupported().then(setBiometricAvailable);
+    generateDeviceFingerprint().then(setDeviceFingerprint);
+  }, []);
+
+  useEffect(() => () => clearScanInterval(), []);
+
+  // ── QR scanning helpers ────────────────────────────────────────────────────
+  const clearScanInterval = () => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  };
+
+  const resolveGeofenceForQr = useCallback(async (parsedQr) => {
+    if (parsedQr.branchId) {
+      const data = await apiRequest(`/branches/${parsedQr.branchId}/geofence`);
+      return data?.success && data.geofence?.latitude ? data.geofence : null;
+    }
+    const data = await apiRequest('/locations/geofence');
+    return data?.success && data.geofence?.latitude ? data.geofence : null;
+  }, []);
+
+  const captureAndDecodeQR = () => {
+    if (!webcamRef.current?.video || webcamRef.current.video.readyState !== 4) return;
+    const video  = webcamRef.current.video;
+    const canvas = document.createElement('canvas');
+    canvas.width  = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(imageData.data, imageData.width, imageData.height);
+    if (code) handleQrScan(code.data);
+  };
+
+  const startQRScanning = () => {
+    clearScanInterval();
+    intervalRef.current = setInterval(captureAndDecodeQR, 500);
+  };
+
+  const buildShiftInfo = (parsed) => {
+    if (parsed.type === 'company_checkin') {
+      return {
+        isCompanyQR: true,
+        employeeName: 'You',
+        date: new Date().toISOString().split('T')[0],
+        startTime: null,
+        endTime: null,
+        location: parsed.branchName || parsed.company || 'Office'
+      };
+    }
+    return {
+      isCompanyQR: false,
+      shiftId: parsed.shiftId || '',
+      employeeName: parsed.employeeName || 'You',
+      date: parsed.date || new Date().toISOString().split('T')[0],
+      startTime: parsed.startTime || '--:--',
+      endTime:   parsed.endTime   || '--:--',
+      location:  parsed.location  || 'Office'
+    };
+  };
+
+  // ── Step 1: Verify location (common to both methods) ──────────────────────
+  const verifyLocation = async () => {
+    setLocationStatus('verifying');
+    setLocationError('');
+    setMethodSelected(null);
+    setQrData(null);
+    setCheckInStatus('idle');
+    setSelfieStep(false);
+    setSelfieImage(null);
+    setGeofence(null);
+    setDistance(null);
+
+    try {
+      const userLocation = await getUserLocation();
+      setLocation(userLocation);
+      setLocationStatus('ready');
+    } catch (error) {
+      setLocationStatus('failed');
+      setLocationError(error.message || 'Failed to capture your location.');
+    }
+  };
+
+  // ── Step 2a: User chose QR — start camera scan ────────────────────────────
+  const chooseQR = () => {
+    setMethodSelected('qr');
+    setScanning(true);
+    setLocationError('');
+    startQRScanning();
+  };
+
+  // ── Step 2b: User chose biometrics ────────────────────────────────────────
+  const chooseBiometric = async () => {
+    setMethodSelected('biometric');
+    setLocationError('');
+    setBiometricError('');
+
+    try {
+      const statusData = await apiRequest('/attendance/biometric/status');
+      setNeedsRegistration(!statusData.registered);
+      setShowBiometricDialog(true);
+    } catch (err) {
+      setLocationError(err.message || 'Failed to check biometric status.');
+      setMethodSelected(null);
+    }
+  };
+
+  // ── Biometric registration flow ───────────────────────────────────────────
+  const handleBiometricRegister = async () => {
+    setBiometricStep('registering');
+    setBiometricError('');
+    try {
+      const startData = await apiRequest('/attendance/biometric/register-start', { method: 'POST' });
+      const attResp   = await startRegistration(startData.options);
+      await apiRequest('/attendance/biometric/register-finish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(attResp)
+      });
+      // Registration succeeded — proceed straight to authentication
+      setNeedsRegistration(false);
+      await handleBiometricAuthenticate();
+    } catch (err) {
+      setBiometricStep('error');
+      setBiometricError(
+        err.name === 'NotAllowedError'
+          ? 'Biometric prompt was cancelled. Please try again.'
+          : err.message || 'Registration failed. Please try again.'
+      );
+    }
+  };
+
+  // ── Biometric authentication + check-in ───────────────────────────────────
+  const handleBiometricAuthenticate = async () => {
+    setBiometricStep('authenticating');
+    setBiometricError('');
+    try {
+      // 1. Get challenge
+      const startData = await apiRequest('/attendance/biometric/auth-start', { method: 'POST' });
+
+      // 2. Prompt Face ID / fingerprint on device
+      const authResp = await startAuthentication(startData.options);
+
+      // 3. Submit check-in with assertion + location
+      const result = await apiRequest('/attendance/biometric/checkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assertion:         authResp,
+          userLocation:      location,
+          deviceFingerprint
+        })
+      });
+
+      if (!result.success) throw new Error(result.message || 'Check-in failed');
+
+      setBiometricStep('success');
+      setCheckInStatus('success');
+      setShowBiometricDialog(false);
+      setTimeout(() => navigate('/employee/dashboard'), 1800);
+    } catch (err) {
+      setBiometricStep('error');
+      setBiometricError(
+        err.name === 'NotAllowedError'
+          ? 'Biometric prompt was cancelled. Please try again.'
+          : err.message || 'Authentication failed. Please try again.'
+      );
+    }
+  };
+
+  // ── QR scan handler ───────────────────────────────────────────────────────
+  const handleQrScan = async (data) => {
+    if (!data) return;
+    clearScanInterval();
+    setScanning(false);
+    setLocationError('');
+    setOpenConfirmation(false);
+
+    let parsed;
+    try { parsed = JSON.parse(data); } catch {
+      setLocationStatus('failed');
+      setLocationError('Invalid QR code format. Please scan a valid attendance QR code.');
+      return;
+    }
+
+    try {
+      setLocationStatus('verifying');
+      const currentLocation  = location || (await getUserLocation());
+      const activeGeofence   = await resolveGeofenceForQr(parsed);
+
+      if (!activeGeofence) {
+        setLocationStatus('failed');
+        setLocation(currentLocation);
+        setLocationError('No geofence configured for this QR code. Please contact your administrator.');
         return;
       }
 
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const userLocation = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy
-          };
-          resolve(userLocation);
-        },
-        (error) => {
-          let errorMessage = '';
-          switch (error.code) {
-            case error.PERMISSION_DENIED:
-              errorMessage = 'Location access denied. Please enable location services.';
-              break;
-            case error.POSITION_UNAVAILABLE:
-              errorMessage = 'Location information is unavailable.';
-              break;
-            case error.TIMEOUT:
-              errorMessage = 'Location request timed out.';
-              break;
-            default:
-              errorMessage = 'An unknown error occurred while retrieving location.';
-              break;
-          }
-          reject(new Error(errorMessage));
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 60000
-        }
+      const computedDistance = calculateDistance(
+        { latitude: currentLocation.latitude, longitude: currentLocation.longitude },
+        { latitude: activeGeofence.latitude,  longitude: activeGeofence.longitude }
       );
-    });
-  };
 
-  // Calculate distance between two coordinates (Haversine formula)
-  const calculateDistance = (coords1, coords2) => {
-    const toRad = (value) => (value * Math.PI) / 180;
-    
-    const R = 6371e3; // Earth radius in meters
-    const φ1 = toRad(coords1.latitude);
-    const φ2 = toRad(coords2.latitude);
-    const Δφ = toRad(coords2.latitude - coords1.latitude);
-    const Δλ = toRad(coords2.longitude - coords1.longitude);
+      setLocation(currentLocation);
+      setGeofence(activeGeofence);
+      setDistance(computedDistance);
 
-    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-    return R * c; // Distance in meters
-  };
-
-  // Verify if user is within allowed radius of company location
-  const verifyLocation = async (userCoords) => {
-    try {
-      // Office location coordinates (Buea - 47WP+W6J)
-      const OFFICE_LOCATION = {
-        latitude: 4.1025,
-        longitude: 9.3908
-      };
-      
-      const MAX_DISTANCE = 20; // 20 meters radius
-      
-      const distance = calculateDistance(userCoords, OFFICE_LOCATION);
-      
-      return {
-        isWithinRadius: distance <= MAX_DISTANCE,
-        distance: distance,
-        maxDistance: MAX_DISTANCE,
-        allowed: distance <= MAX_DISTANCE
-      };
-    } catch (error) {
-      console.error('Location verification error:', error);
-      throw new Error('Failed to verify location');
-    }
-  };
-
-  // Format distance for display
-  const formatDistance = (distance) => {
-    if (distance < 1) {
-      return `${Math.round(distance * 100)} cm`;
-    } else if (distance < 1000) {
-      return `${Math.round(distance)} m`;
-    } else {
-      return `${(distance / 1000).toFixed(2)} km`;
-    }
-  };
-
-  // Start scanning process
-  const startScanning = async () => {
-    try {
-      setScanning(true);
-      setLocation(null);
-      setLocationStatus('pending');
-      setLocationError('');
-      setQrData(null);
-      setCheckInStatus('idle');
-      setOpenConfirmation(false);
-      setShiftInfo(null);
-      
-      // Get user location
-      setLocationStatus('verifying');
-      const userLocation = await getUserLocation();
-      setLocation(userLocation);
-      
-      // Verify location against office coordinates
-      const result = await verifyLocation(userLocation);
-      setVerificationResult(result);
-      
-      if (result.allowed) {
-        setLocationStatus('verified');
-        // Start QR scanning
-        startQRScanning();
-      } else {
+      if (computedDistance > activeGeofence.radius) {
         setLocationStatus('failed');
-        setLocationError(`You are ${formatDistance(result.distance)} away from the office. Maximum allowed distance is ${result.maxDistance} meters.`);
-        setScanning(false);
+        setLocationError(`You are ${formatDistance(computedDistance)} away. You must be within ${activeGeofence.radius} m to continue.`);
+        return;
       }
+
+      setLocationStatus('verified');
+      setQrData(data);
+      setShiftInfo(buildShiftInfo(parsed));
+      setOpenConfirmation(true);
     } catch (error) {
       setLocationStatus('failed');
-      setLocationError(error.message);
-      setScanning(false);
+      setLocationError(error.message || 'Failed to verify this QR code.');
     }
   };
 
-  // Start QR scanning with webcam
-  const startQRScanning = () => {
-    intervalRef.current = setInterval(() => {
-      captureAndDecodeQR();
-    }, 500); // Scan every 500ms
-  };
+  // ── Selfie capture ────────────────────────────────────────────────────────
+  const captureSelfie = useCallback(() => {
+    if (!selfieWebcamRef.current) return;
+    setSelfieImage(selfieWebcamRef.current.getScreenshot());
+  }, []);
 
-  // Capture image from webcam and decode QR
-  const captureAndDecodeQR = () => {
-    if (webcamRef.current && webcamRef.current.video && webcamRef.current.video.readyState === 4) {
-      const video = webcamRef.current.video;
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const code = jsQR(imageData.data, imageData.width, imageData.height);
-      
-      if (code) {
-        handleScan(code.data);
-      }
-    }
-  };
-
-  // Handle QR scan result
-  const handleScan = (data) => {
-    if (data) {
-      try {
-        // Stop scanning
-        clearInterval(intervalRef.current);
-        
-        const parsedData = JSON.parse(data);
-        setQrData(data);
-        setScanning(false);
-        setOpenConfirmation(true);
-        
-        // Mock shift info for demo (in real app, this would come from backend)
-        setShiftInfo({
-          shiftId: parsedData.shiftId || 'SHIFT-001',
-          employeeName: parsedData.employeeName || 'Current Employee',
-          date: parsedData.date || new Date().toISOString().split('T')[0],
-          startTime: parsedData.startTime || '08:00 AM',
-          endTime: parsedData.endTime || '04:00 PM',
-          location: parsedData.location || 'Buea Office (47WP+W6J)'
-        });
-      } catch (parseError) {
-        console.error('QR Parse Error:', parseError);
-        setCheckInStatus('error');
-        setLocationError('Invalid QR code format');
-        setScanning(false);
-      }
-    }
-  };
-
-  // Handle scan error
-  const handleError = (err) => {
-    console.error('QR Scan Error:', err);
-    setScanning(false);
-    setCheckInStatus('error');
-    setLocationError('Camera error. Please try again.');
-  };
-
-  // Confirm and process check-in
+  // ── QR check-in submit ────────────────────────────────────────────────────
   const confirmCheckIn = async () => {
-    if (locationStatus !== 'verified') {
-      setLocationError('Location verification required');
+    if (!selfieImage) {
+      setLocationError('Please take a selfie before confirming.');
       return;
     }
-
-    if (!qrData) {
-      setLocationError('QR code is required');
-      return;
-    }
-
     try {
       setCheckInStatus('processing');
-      
-      // Get token from localStorage
-      const token = localStorage.getItem('token');
-      
-      // Send check-in data to backend
-      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000/api/v1'}/attendance/checkin`, {
+      const data = await apiRequest('/attendance/checkin', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          qrData: qrData,
-          userLocation: location
+          qrData,
+          userLocation:      location,
+          selfieBase64:      selfieImage,
+          deviceFingerprint
         })
       });
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        setCheckInStatus('success');
-        setOpenConfirmation(false);
-        
-        // Redirect after success
-        setTimeout(() => {
-          navigate('/employee/dashboard');
-        }, 2000);
-      } else {
-        throw new Error(data.message || 'Check-in failed');
-      }
+      if (!data.success) throw new Error(data.message || 'Check-in failed');
+      setCheckInStatus('success');
+      setOpenConfirmation(false);
+      setTimeout(() => navigate('/employee/dashboard'), 1800);
     } catch (error) {
-      console.error('Check-in error:', error);
       setCheckInStatus('error');
       setLocationError(error.message || 'Check-in failed. Please try again.');
+      setOpenConfirmation(false);
     }
   };
 
-  // Cancel scanning
+  // ── Cancel / reset ────────────────────────────────────────────────────────
   const cancelScanning = () => {
-    clearInterval(intervalRef.current);
+    clearScanInterval();
     setScanning(false);
     setLocation(null);
     setLocationStatus('pending');
     setLocationError('');
+    setGeofence(null);
+    setDistance(null);
     setQrData(null);
     setCheckInStatus('idle');
     setOpenConfirmation(false);
     setShiftInfo(null);
+    setSelfieStep(false);
+    setSelfieImage(null);
+    setMethodSelected(null);
+    setShowBiometricDialog(false);
+    setBiometricStep('idle');
+    setBiometricError('');
   };
 
-  // Reset scanner
-  const resetScanner = () => {
-    cancelScanning();
-  };
+  // ── Derived UI helpers ────────────────────────────────────────────────────
+  const biometricLabel = getBiometricLabel(navigator.userAgent);
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <Box sx={{ p: 2 }}>
-      <Typography variant="h4" gutterBottom>
-        QR Code Check-In
+    <Box sx={{ p: { xs: 1.5, sm: 2.5 }, maxWidth: 640, mx: 'auto' }}>
+      <Typography variant="h5" fontWeight={700} gutterBottom>
+        Attendance Check-In / Check-Out
       </Typography>
-      
-      <Card sx={{ mb: 3 }}>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        Your location is verified first, then you can check in using the QR code or your device biometrics (Face&nbsp;ID&nbsp;/&nbsp;fingerprint).
+      </Typography>
+
+      {/* ── Location status card ─────────────────────────────────────────── */}
+      <Card sx={{ mb: 2 }}>
         <CardContent>
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-            <LocationOn 
-              color={locationStatus === 'verified' ? "success" : 
-                     locationStatus === 'failed' ? "error" : 
-                     locationStatus === 'verifying' ? "warning" : "disabled"} 
-              sx={{ mr: 1 }} 
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
+            <LocationOn
+              color={
+                locationStatus === 'verified'  ? 'success' :
+                locationStatus === 'failed'    ? 'error'   :
+                locationStatus === 'verifying' ? 'warning' :
+                locationStatus === 'ready'     ? 'info'    : 'disabled'
+              }
+              sx={{ mr: 1 }}
             />
             <Box>
-              <Typography 
-                variant="body1" 
-                color={locationStatus === 'verified' ? "success.main" : 
-                       locationStatus === 'failed' ? "error.main" : 
-                       locationStatus === 'verifying' ? "warning.main" : "text.primary"}
+              <Typography
+                variant="body1"
+                color={
+                  locationStatus === 'verified'  ? 'success.main' :
+                  locationStatus === 'failed'    ? 'error.main'   :
+                  locationStatus === 'verifying' ? 'warning.main' :
+                  locationStatus === 'ready'     ? 'info.main'    : 'text.primary'
+                }
               >
-                {locationStatus === 'pending' && "Location verification required"}
-                {locationStatus === 'verifying' && "Verifying your location..."}
-                {locationStatus === 'verified' && `Location verified (${location ? `${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}` : 'Unknown'})`}
-                {locationStatus === 'failed' && "Location verification failed"}
+                {locationStatus === 'pending'   && 'Location verification required'}
+                {locationStatus === 'verifying' && 'Checking your live location…'}
+                {locationStatus === 'ready'     && 'Location captured — choose how to check in'}
+                {locationStatus === 'verified'  && `Inside the required geofence (${geofence?.radius} m radius)`}
+                {locationStatus === 'failed'    && 'Location verification failed'}
               </Typography>
-              {location && (
+              {location && ['ready', 'verified'].includes(locationStatus) && (
                 <Typography variant="caption" color="text.secondary">
-                  Accuracy: ±{Math.round(location.accuracy)} meters
+                  {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)} · accuracy ±{Math.round(location.accuracy)} m
                 </Typography>
               )}
             </Box>
           </Box>
-          
-          {locationStatus === 'verifying' && (
-            <Box sx={{ width: '100%', mb: 2 }}>
-              <CircularProgress size={24} />
-            </Box>
-          )}
-          
-          {(locationStatus === 'failed' || locationError) && (
-            <Alert severity={locationStatus === 'failed' ? "warning" : "error"} sx={{ mb: 2 }}>
-              {locationError || "Location verification failed"}
-              <Button 
-                size="small" 
-                onClick={startScanning} 
-                sx={{ ml: 1 }}
-              >
-                Try Again
-              </Button>
+
+          {locationStatus === 'verifying' && <CircularProgress size={24} />}
+
+          {(locationStatus === 'failed' || (locationError && locationStatus !== 'verified')) && (
+            <Alert severity="warning" sx={{ mb: 1.5 }}>
+              {locationError}
+              {distance != null && geofence && (
+                <Box sx={{ mt: 0.5 }}>
+                  <strong>Your distance:</strong> {formatDistance(distance)} ·{' '}
+                  <strong>Required:</strong> within {geofence.radius} m
+                </Box>
+              )}
             </Alert>
           )}
-          
-          {verificationResult && locationStatus === 'failed' && (
-            <Alert severity="info" sx={{ mb: 2 }}>
-              <Typography variant="body2">
-                <strong>Office Location:</strong> Buea (47WP+W6J)<br />
-                <strong>Your Distance:</strong> {formatDistance(verificationResult.distance)}<br />
-                <strong>Maximum Allowed:</strong> {verificationResult.maxDistance} meters
-              </Typography>
-            </Alert>
-          )}
-          
-          <Box sx={{ textAlign: 'center', my: 3 }}>
-            {!scanning ? (
-              <Button 
-                variant="contained" 
-                size="large" 
-                startIcon={<QrCodeScanner />} 
-                onClick={startScanning}
-                disabled={locationStatus === 'verifying'}
+
+          {/* ── Step 1: initial verify button ─────────────────────────────── */}
+          {locationStatus === 'pending' && (
+            <Box sx={{ textAlign: 'center', mt: 2 }}>
+              <Button
+                variant="contained"
+                size="large"
+                startIcon={<LocationOn />}
+                onClick={verifyLocation}
                 sx={{ py: 1.5, px: 4 }}
               >
-                {locationStatus === 'verified' ? 'Scan QR Code' : 'Verify Location & Scan'}
+                Verify My Location
               </Button>
-            ) : (
-              <Box>
-                <Box sx={{ 
-                  width: '100%', 
-                  height: 300, 
-                  border: '2px dashed #1976d2', 
-                  borderRadius: 2, 
-                  mb: 2, 
+            </Box>
+          )}
+
+          {/* ── Step 2: method selection (after location captured) ─────────── */}
+          {locationStatus === 'ready' && !scanning && !methodSelected && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, textAlign: 'center' }}>
+                Choose how you'd like to mark your attendance:
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
+                {/* QR Code option */}
+                <Button
+                  variant="outlined"
+                  size="large"
+                  startIcon={<QrCodeScanner />}
+                  onClick={chooseQR}
+                  sx={{ py: 2, px: 3, minWidth: 160, flexDirection: 'column', gap: 0.5 }}
+                >
+                  <span>Scan QR Code</span>
+                  <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'none' }}>
+                    Point camera at QR
+                  </Typography>
+                </Button>
+
+                {/* Biometric option */}
+                <Button
+                  variant="outlined"
+                  size="large"
+                  color={biometricAvailable ? 'secondary' : 'inherit'}
+                  startIcon={<Fingerprint />}
+                  onClick={chooseBiometric}
+                  disabled={!biometricAvailable}
+                  sx={{ py: 2, px: 3, minWidth: 160, flexDirection: 'column', gap: 0.5 }}
+                >
+                  <span>Use Biometrics</span>
+                  <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'none' }}>
+                    {biometricAvailable ? biometricLabel : 'Not supported'}
+                  </Typography>
+                </Button>
+              </Box>
+
+              {!biometricAvailable && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, textAlign: 'center' }}>
+                  Biometrics require a device with Face ID, Touch ID, or a fingerprint sensor.
+                </Typography>
+              )}
+            </Box>
+          )}
+
+          {/* ── QR camera view ────────────────────────────────────────────── */}
+          {scanning && (
+            <Box sx={{ mt: 2 }}>
+              <Box
+                sx={{
+                  width: '100%',
+                  height: { xs: 260, sm: 320 },
+                  border: '2px dashed #1976d2',
+                  borderRadius: 2,
+                  mb: 2,
                   overflow: 'hidden',
                   position: 'relative'
-                }}>
-                  <Webcam
-                    audio={false}
-                    ref={webcamRef}
-                    screenshotFormat="image/jpeg"
-                    videoConstraints={{ facingMode: "environment" }}
-                    onUserMediaError={handleError}
-                    style={{ width: '100%', height: '100%' }}
-                  />
-                  <Box sx={{ 
-                    position: 'absolute', 
-                    top: 0, 
-                    left: 0, 
-                    right: 0, 
-                    bottom: 0, 
-                    display: 'flex', 
-                    alignItems: 'center', 
+                }}
+              >
+                <Webcam
+                  audio={false}
+                  ref={webcamRef}
+                  screenshotFormat="image/jpeg"
+                  videoConstraints={{ facingMode: { ideal: 'environment' } }}
+                  onUserMediaError={() => {
+                    clearScanInterval();
+                    setScanning(false);
+                    setMethodSelected(null);
+                    setLocationError('Camera access failed. Please allow camera permissions and try again.');
+                  }}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
                     justifyContent: 'center',
                     pointerEvents: 'none'
-                  }}>
-                    <Box sx={{ 
-                      width: 200, 
-                      height: 200, 
-                      border: '3px solid rgba(255, 255, 255, 0.8)',
-                      borderRadius: 2
-                    }} />
-                  </Box>
-                </Box>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  Point your camera at the QR code
-                </Typography>
-                <Button 
-                  variant="outlined" 
-                  startIcon={<VideocamOff />}
-                  onClick={cancelScanning}
+                  }}
                 >
+                  <Box sx={{ width: 190, height: 190, border: '3px solid rgba(255,255,255,0.85)', borderRadius: 2 }} />
+                </Box>
+              </Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, textAlign: 'center' }}>
+                Point your camera at the attendance QR code.
+              </Typography>
+              <Box sx={{ textAlign: 'center' }}>
+                <Button variant="outlined" startIcon={<VideocamOff />} onClick={cancelScanning}>
                   Cancel
                 </Button>
               </Box>
-            )}
-          </Box>
+            </Box>
+          )}
         </CardContent>
       </Card>
-      
-      {/* Check-In Success/Error Messages */}
+
+      {/* ── Result banners ───────────────────────────────────────────────── */}
       {checkInStatus === 'success' && (
-        <Alert severity="success" sx={{ mb: 2 }}>
-          <Typography variant="h6">Check-In Successful!</Typography>
-          <Typography>
-            You have been successfully checked in at {new Date().toLocaleTimeString()}.
-          </Typography>
+        <Alert severity="success" icon={<CheckCircle />}>
+          <strong>Success!</strong> Your attendance has been recorded at {new Date().toLocaleTimeString()}.
         </Alert>
       )}
-      
-      {checkInStatus === 'error' && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          <Typography variant="h6">Check-In Failed</Typography>
-          <Typography>
-            {locationError || 'Please try again or contact your administrator.'}
-          </Typography>
-        </Alert>
+      {checkInStatus === 'error' && locationError && (
+        <Alert severity="error">{locationError}</Alert>
       )}
-      
-      {/* Confirmation Dialog */}
-      <Dialog open={openConfirmation} onClose={cancelScanning} maxWidth="sm" fullWidth>
-        <DialogTitle>Confirm Check-In</DialogTitle>
+
+      {/* ── Biometric dialog ─────────────────────────────────────────────── */}
+      <Dialog open={showBiometricDialog} onClose={cancelScanning} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {biometricStep === 'success' ? <CheckCircle color="success" /> : <Fingerprint color="secondary" />}
+          {needsRegistration ? 'Register Biometric' : `${biometricLabel} Check-In`}
+        </DialogTitle>
         <DialogContent>
-          {qrData && shiftInfo && (
-            <Box>
-              <Typography variant="h6" gutterBottom>
-                Shift Details
+          {biometricStep === 'idle' && needsRegistration && (
+            <>
+              <Typography variant="body2" sx={{ mb: 1.5 }}>
+                You haven't registered your biometrics yet. Register once and you can use{' '}
+                <strong>{biometricLabel}</strong> to check in from this device going forward.
               </Typography>
-              
-              <List>
-                <ListItem>
-                  <ListItemAvatar>
-                    <Avatar>
-                      <Person />
-                    </Avatar>
-                  </ListItemAvatar>
-                  <ListItemText 
-                    primary="Employee" 
-                    secondary={shiftInfo.employeeName} 
-                  />
-                </ListItem>
-                
-                <ListItem>
-                  <ListItemAvatar>
-                    <Avatar>
-                      <Schedule />
-                    </Avatar>
-                  </ListItemAvatar>
-                  <ListItemText 
-                    primary="Date" 
-                    secondary={new Date(shiftInfo.date).toLocaleDateString()} 
-                  />
-                </ListItem>
-                
-                <ListItem>
-                  <ListItemAvatar>
-                    <Avatar>
-                      <AccessTime />
-                    </Avatar>
-                  </ListItemAvatar>
-                  <ListItemText 
-                    primary="Time" 
-                    secondary={`${shiftInfo.startTime} - ${shiftInfo.endTime}`} 
-                  />
-                </ListItem>
-                
-                <ListItem>
-                  <ListItemAvatar>
-                    <Avatar>
-                      <LocationOn />
-                    </Avatar>
-                  </ListItemAvatar>
-                  <ListItemText 
-                    primary="Location" 
-                    secondary={shiftInfo.location} 
-                  />
-                </ListItem>
-              </List>
-              
-              <Divider sx={{ my: 2 }} />
-              
-              <Typography variant="h6" gutterBottom>
-                Location Verification
+              <Alert severity="info" sx={{ mb: 1 }}>
+                Your device will prompt for <strong>{biometricLabel}</strong> to confirm registration.
+              </Alert>
+            </>
+          )}
+
+          {biometricStep === 'idle' && !needsRegistration && (
+            <>
+              <Typography variant="body2" sx={{ mb: 1.5 }}>
+                Your device will prompt for <strong>{biometricLabel}</strong>. Once confirmed, your attendance will be marked instantly.
               </Typography>
-              
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <CheckCircle color="success" sx={{ mr: 1 }} />
-                <Typography>
-                  Your location has been verified within the allowed radius
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <CheckCircle color="success" fontSize="small" />
+                <Typography variant="body2">
+                  You are inside the required geofence
+                  {distance != null ? ` (${formatDistance(distance)} from pin)` : ''}.
                 </Typography>
               </Box>
-              
-              {location && (
-                <Alert severity="info">
-                  <Typography variant="body2">
-                    <strong>Your Location:</strong> {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}<br />
-                    <strong>Accuracy:</strong> ±{Math.round(location.accuracy)} meters<br />
-                    <strong>Status:</strong> Verified
+            </>
+          )}
+
+          {(biometricStep === 'registering' || biometricStep === 'authenticating') && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 2, gap: 2 }}>
+              <CircularProgress size={48} color="secondary" />
+              <Typography variant="body2" color="text.secondary">
+                {biometricStep === 'registering'
+                  ? 'Follow the biometric prompt on your device…'
+                  : 'Verify your biometric to check in…'}
+              </Typography>
+            </Box>
+          )}
+
+          {biometricStep === 'success' && (
+            <Alert severity="success">
+              Attendance recorded at {new Date().toLocaleTimeString()}.
+            </Alert>
+          )}
+
+          {biometricStep === 'error' && (
+            <Alert severity="error" sx={{ mt: 1 }}>
+              {biometricError}
+            </Alert>
+          )}
+        </DialogContent>
+
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          {biometricStep !== 'success' && (
+            <Button onClick={cancelScanning} color="inherit"
+              disabled={biometricStep === 'registering' || biometricStep === 'authenticating'}>
+              Cancel
+            </Button>
+          )}
+
+          {biometricStep === 'idle' && needsRegistration && (
+            <Button variant="contained" color="secondary" startIcon={<Fingerprint />}
+              onClick={handleBiometricRegister}>
+              Register &amp; Check In
+            </Button>
+          )}
+
+          {biometricStep === 'idle' && !needsRegistration && (
+            <Button variant="contained" color="secondary" startIcon={<FaceRetouchingNatural />}
+              onClick={handleBiometricAuthenticate}>
+              Activate {biometricLabel}
+            </Button>
+          )}
+
+          {biometricStep === 'error' && (
+            <Button variant="contained" color="secondary"
+              onClick={needsRegistration ? handleBiometricRegister : handleBiometricAuthenticate}>
+              Try Again
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* ── QR confirmation dialog (selfie + confirm) ────────────────────── */}
+      <Dialog open={openConfirmation} onClose={cancelScanning} maxWidth="sm" fullWidth>
+        <DialogTitle>{selfieStep ? 'Take a Selfie' : 'Confirm Attendance'}</DialogTitle>
+        <DialogContent>
+          {!selfieStep ? (
+            <>
+              {shiftInfo && (
+                <>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    <Chip label="QR Code" size="small" icon={<QrCodeScanner />} color="primary" variant="outlined" />
+                  </Box>
+                  <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                    {shiftInfo.isCompanyQR ? 'Attendance QR Details' : 'Shift Details'}
                   </Typography>
-                </Alert>
+                  <List dense>
+                    <ListItem>
+                      <ListItemAvatar><Avatar><Schedule /></Avatar></ListItemAvatar>
+                      <ListItemText primary="Date" secondary={new Date(shiftInfo.date).toLocaleDateString()} />
+                    </ListItem>
+                    <ListItem>
+                      <ListItemAvatar><Avatar><LocationOn /></Avatar></ListItemAvatar>
+                      <ListItemText primary="Location" secondary={shiftInfo.location} />
+                    </ListItem>
+                    {!shiftInfo.isCompanyQR && shiftInfo.startTime && (
+                      <ListItem>
+                        <ListItemAvatar><Avatar><AccessTime /></Avatar></ListItemAvatar>
+                        <ListItemText primary="Time" secondary={`${shiftInfo.startTime} - ${shiftInfo.endTime}`} />
+                      </ListItem>
+                    )}
+                  </List>
+                  <Divider sx={{ my: 1.5 }} />
+                </>
+              )}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <CheckCircle color="success" />
+                <Typography>
+                  You are inside the required geofence
+                  {distance != null ? ` (${formatDistance(distance)} from the pin).` : '.'}
+                </Typography>
+              </Box>
+              <Alert severity="info" sx={{ mt: 1 }}>
+                Next, take a quick selfie to complete your check-in.
+              </Alert>
+            </>
+          ) : (
+            <Box>
+              {!selfieImage ? (
+                <>
+                  <Box sx={{ width: '100%', height: 280, border: '2px dashed #1976d2', borderRadius: 2, overflow: 'hidden', mb: 2 }}>
+                    <Webcam
+                      audio={false}
+                      ref={selfieWebcamRef}
+                      screenshotFormat="image/jpeg"
+                      videoConstraints={{ facingMode: 'user' }}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  </Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, textAlign: 'center' }}>
+                    Look straight at the camera, then capture your selfie.
+                  </Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                    <Button variant="contained" startIcon={<CameraAlt />} onClick={captureSelfie}>
+                      Capture Selfie
+                    </Button>
+                  </Box>
+                </>
+              ) : (
+                <>
+                  <Box sx={{ textAlign: 'center', mb: 2 }}>
+                    <img
+                      src={selfieImage}
+                      alt="Your selfie"
+                      style={{ width: '100%', maxHeight: 260, borderRadius: 12, objectFit: 'cover', border: '2px solid #e0e0e0' }}
+                    />
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                    <Button variant="outlined" startIcon={<Replay />} onClick={() => setSelfieImage(null)}>
+                      Retake
+                    </Button>
+                  </Box>
+                </>
               )}
             </Box>
           )}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={cancelScanning}>Cancel</Button>
-          <Button 
-            onClick={confirmCheckIn} 
-            variant="contained" 
-            color="primary"
-            disabled={checkInStatus === 'processing'}
-          >
-            {checkInStatus === 'processing' ? 'Processing...' : 'Confirm Check-In'}
-          </Button>
+
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={cancelScanning} color="inherit">Cancel</Button>
+          {!selfieStep ? (
+            <Button variant="contained" onClick={() => setSelfieStep(true)}>
+              Next: Take Selfie
+            </Button>
+          ) : (
+            <Button
+              variant="contained"
+              color="success"
+              onClick={confirmCheckIn}
+              disabled={!selfieImage || checkInStatus === 'processing'}
+              startIcon={
+                checkInStatus === 'processing'
+                  ? <CircularProgress size={16} color="inherit" />
+                  : <CheckCircle />
+              }
+            >
+              {checkInStatus === 'processing' ? 'Submitting…' : 'Confirm'}
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
     </Box>

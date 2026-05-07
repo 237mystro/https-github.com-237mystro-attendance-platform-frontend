@@ -11,6 +11,7 @@ import {
   Alert,
   CircularProgress
 } from '@mui/material';
+import { apiRequest } from '../../utils/api';
 
 const ChangePassword = () => {
   const [currentPassword, setCurrentPassword] = useState('');
@@ -46,19 +47,16 @@ const ChangePassword = () => {
       setLoading(true);
       
       // Make API call to change password
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/auth/change-password`, {
-        method: 'POST',
+      const data = await apiRequest('/settings/change-password', {
+        method: 'PUT',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           currentPassword,
           newPassword
         })
       });
-      
-      const data = await response.json();
       
       if (data.success) {
         setSuccess('Password changed successfully! Redirecting to dashboard...');

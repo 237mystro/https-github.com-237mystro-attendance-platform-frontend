@@ -9,8 +9,8 @@ import { alpha, useTheme } from '@mui/material/styles';
 import {
   Menu as MenuIcon, Dashboard, People, Schedule, Assignment,
   Payment, Chat, Notifications, Brightness4, Brightness7,
-  ExitToApp, EventNote, MyLocation, QrCode2, RemoveCircle, Store,
-  AccountCircleOutlined, SettingsOutlined
+  ExitToApp, EventNote, MyLocation, QrCode2, RemoveCircle,
+  Store, AccountCircleOutlined, SettingsOutlined
 } from '@mui/icons-material';
 import { apiRequest, parseUnreadCount } from '../../utils/api';
 import { clearSession, getStoredToken, getStoredUser } from '../../utils/authSession';
@@ -19,33 +19,32 @@ import InstallPWA from '../common/InstallPWA';
 const DRAWER_WIDTH = 260;
 
 const NAV_ITEMS = [
-  { text: 'Dashboard', icon: <Dashboard />, path: '/admin/dashboard', color: '#42a5f5' },
-  { text: 'Employees', icon: <People />, path: '/admin/employees', color: '#66bb6a' },
-  { text: 'Scheduling', icon: <Schedule />, path: '/admin/scheduling', color: '#ab47bc' },
-  { text: 'Attendance', icon: <Assignment />, path: '/admin/attendance', color: '#ffa726' },
-  { text: 'Leave', icon: <EventNote />, path: '/admin/leave', color: '#ef5350' },
-  { text: 'Payroll', icon: <Payment />, path: '/admin/payroll', color: '#26a69a' },
-  { text: 'Messaging', icon: <Chat />, path: '/admin/messaging', color: '#7c4dff' },
-  { text: 'Geofence', icon: <MyLocation />, path: '/admin/geofence', color: '#00acc1' },
-  { text: 'Company QR', icon: <QrCode2 />, path: '/admin/company-qr', color: '#43a047' },
-  { text: 'Late Deductions', icon: <RemoveCircle />, path: '/admin/late-deductions', color: '#e53935' },
-  { text: 'Branches',       icon: <Store />,        path: '/admin/branches',         color: '#00897b' },
+  { text: 'Dashboard',      icon: <Dashboard />,   path: '/branch/dashboard',       color: '#42a5f5' },
+  { text: 'Employees',      icon: <People />,       path: '/branch/employees',       color: '#66bb6a' },
+  { text: 'Scheduling',     icon: <Schedule />,     path: '/branch/scheduling',      color: '#ab47bc' },
+  { text: 'Attendance',     icon: <Assignment />,   path: '/branch/attendance',      color: '#ffa726' },
+  { text: 'Leave',          icon: <EventNote />,    path: '/branch/leave',           color: '#ef5350' },
+  { text: 'Payroll',        icon: <Payment />,      path: '/branch/payroll',         color: '#26a69a' },
+  { text: 'Messaging',      icon: <Chat />,         path: '/branch/messaging',       color: '#7c4dff' },
+  { text: 'Geofence',       icon: <MyLocation />,   path: '/branch/geofence',        color: '#00acc1' },
+  { text: 'Branch QR',      icon: <QrCode2 />,      path: '/branch/branch-qr',       color: '#43a047' },
+  { text: 'Late Deductions',icon: <RemoveCircle />, path: '/branch/late-deductions', color: '#e53935' },
 ];
 
 const AVATAR_COLORS = ['#1976d2','#388e3c','#d32f2f','#f57c00','#7b1fa2','#0288d1','#c2185b','#00796b'];
 const avatarColor = (name) => AVATAR_COLORS[(name?.charCodeAt(0) || 0) % AVATAR_COLORS.length];
 
-const AdminDashboard = ({ toggleDarkMode, darkMode }) => {
+const BranchDashboard = ({ toggleDarkMode, darkMode }) => {
   const theme = useTheme();
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [anchorEl, setAnchorEl] = useState(null);
+  const [mobileOpen, setMobileOpen]               = useState(false);
+  const [anchorEl, setAnchorEl]                   = useState(null);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const location = useLocation();
   const navigate = useNavigate();
   const [user, setUser] = useState(() => getStoredUser() || {});
 
   const handleDrawerToggle = () => setMobileOpen(o => !o);
-  const handleMenu = (e) => setAnchorEl(e.currentTarget);
+  const handleMenu  = (e) => setAnchorEl(e.currentTarget);
   const handleClose = () => setAnchorEl(null);
   const handleLogout = () => { clearSession(); navigate('/login'); handleClose(); };
 
@@ -80,25 +79,27 @@ const AdminDashboard = ({ toggleDarkMode, darkMode }) => {
     return () => window.removeEventListener('profileUpdated', onProfileUpdated);
   }, []);
 
-  const currentPage = NAV_ITEMS.find(n => location.pathname === n.path || location.pathname.startsWith(n.path + '/'))?.text || 'Dashboard';
+  const currentPage = NAV_ITEMS.find(n =>
+    location.pathname === n.path || location.pathname.startsWith(n.path + '/')
+  )?.text || 'Dashboard';
+  const topBarColor = darkMode ? alpha('#081120', 0.92) : alpha('#ffffff', 0.92);
   const pageColor = theme.palette.background.default;
   const borderColor = theme.palette.divider;
-  const topBarColor = darkMode ? alpha('#081120', 0.92) : alpha('#ffffff', 0.92);
   const drawerGradient = darkMode
-    ? 'linear-gradient(180deg,#081120 0%,#10274b 55%,#133968 100%)'
-    : 'linear-gradient(180deg,#0d1b4b 0%,#1a3a6e 100%)';
+    ? 'linear-gradient(180deg,#071911 0%,#103124 58%,#14503b 100%)'
+    : 'linear-gradient(180deg,#1a3a2a 0%,#1b5e3a 100%)';
   const drawerBorder = darkMode ? 'rgba(148,163,184,0.14)' : 'rgba(255,255,255,0.08)';
 
   const drawer = (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', background: drawerGradient }}>
       {/* Logo */}
       <Box sx={{ p: 2.5, display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: `1px solid ${drawerBorder}` }}>
-        <Box sx={{ width: 40, height: 40, borderRadius: 2, background: 'linear-gradient(135deg,#42a5f5,#1976d2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <Payment sx={{ color: 'white', fontSize: 20 }} />
+        <Box sx={{ width: 40, height: 40, borderRadius: 2, background: 'linear-gradient(135deg,#43a047,#66bb6a)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Store sx={{ color: 'white', fontSize: 20 }} />
         </Box>
         <Box>
-          <Typography variant="subtitle1" fontWeight={800} sx={{ color: 'white', lineHeight: 1.2, letterSpacing: 0.2 }}>AutoPayroll</Typography>
-          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.42)', fontSize: 10 }}>Admin Panel</Typography>
+          <Typography variant="subtitle1" fontWeight={800} sx={{ color: 'white', lineHeight: 1.2 }}>AutoPayroll</Typography>
+          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: 10 }}>Branch Portal</Typography>
         </Box>
       </Box>
 
@@ -141,14 +142,16 @@ const AdminDashboard = ({ toggleDarkMode, darkMode }) => {
       <Box sx={{ p: 2, borderTop: `1px solid ${drawerBorder}` }}>
         <Box
           onClick={handleMenu}
-          sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1, borderRadius: 2, cursor: 'pointer', '&:hover': { bgcolor: 'rgba(255,255,255,0.07)' }, transition: 'background 0.15s' }}
+          sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1, borderRadius: 2, cursor: 'pointer', '&:hover': { bgcolor: 'rgba(255,255,255,0.07)' } }}
         >
           <Avatar src={user.avatarUrl || undefined} sx={{ width: 36, height: 36, bgcolor: avatarColor(user.name), fontWeight: 700, fontSize: 15, flexShrink: 0 }}>
-            {user.name?.charAt(0)?.toUpperCase() || 'A'}
+            {user.name?.charAt(0)?.toUpperCase() || 'M'}
           </Avatar>
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="body2" fontWeight={600} sx={{ color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.name || 'Admin'}</Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.42)', fontSize: 10 }}>Administrator</Typography>
+            <Typography variant="body2" fontWeight={600} sx={{ color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.name || 'Manager'}</Typography>
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.42)', fontSize: 10 }}>
+              {user.role === 'branch_manager' ? 'Branch Manager' : 'Branch HR'}
+            </Typography>
           </Box>
         </Box>
       </Box>
@@ -159,7 +162,6 @@ const AdminDashboard = ({ toggleDarkMode, darkMode }) => {
     <Box sx={{ display: 'flex' }}>
       <CssBaseline />
 
-      {/* AppBar */}
       <AppBar position="fixed" elevation={0}
         sx={{
           width: { sm: `calc(100% - ${DRAWER_WIDTH}px)` },
@@ -184,7 +186,7 @@ const AdminDashboard = ({ toggleDarkMode, darkMode }) => {
           </Tooltip>
 
           <Tooltip title="Messages">
-            <IconButton onClick={() => navigate('/admin/messaging')} sx={{ color: theme.palette.text.secondary }}>
+            <IconButton onClick={() => navigate('/branch/messaging')} sx={{ color: theme.palette.text.secondary }}>
               <Badge badgeContent={unreadNotifications} color="error">
                 <Notifications />
               </Badge>
@@ -193,7 +195,7 @@ const AdminDashboard = ({ toggleDarkMode, darkMode }) => {
 
           <IconButton onClick={handleMenu} sx={{ ml: 0.5 }}>
             <Avatar key={user.avatarUrl} src={user.avatarUrl || undefined} sx={{ width: 36, height: 36, bgcolor: avatarColor(user.name), fontWeight: 700, fontSize: 15 }}>
-              {user.name?.charAt(0)?.toUpperCase() || 'A'}
+              {user.name?.charAt(0)?.toUpperCase() || 'M'}
             </Avatar>
           </IconButton>
 
@@ -201,10 +203,10 @@ const AdminDashboard = ({ toggleDarkMode, darkMode }) => {
             transformOrigin={{ horizontal: 'right', vertical: 'top' }}
             anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
             PaperProps={{ sx: { mt: 1, minWidth: 180, borderRadius: 2, boxShadow: '0 8px 30px rgba(0,0,0,0.12)' } }}>
-            <MenuItem onClick={() => { navigate('/admin/profile'); handleClose(); }}>
+            <MenuItem onClick={() => { navigate('/branch/profile'); handleClose(); }}>
               <AccountCircleOutlined sx={{ mr: 1.5, fontSize: 18, color: 'text.secondary' }} /> Profile
             </MenuItem>
-            <MenuItem onClick={() => { navigate('/admin/settings'); handleClose(); }}>
+            <MenuItem onClick={() => { navigate('/branch/settings'); handleClose(); }}>
               <SettingsOutlined sx={{ mr: 1.5, fontSize: 18, color: 'text.secondary' }} /> Settings
             </MenuItem>
             <Divider />
@@ -247,4 +249,4 @@ const AdminDashboard = ({ toggleDarkMode, darkMode }) => {
   );
 };
 
-export default AdminDashboard;
+export default BranchDashboard;

@@ -14,6 +14,7 @@ import {
   FormControl,
   CircularProgress
 } from '@mui/material';
+import { apiRequest } from '../../utils/api';
 
 const EmployeeOnboarding = ({ onEmployeeCreated }) => {
   const [name, setName] = useState('');
@@ -41,7 +42,7 @@ const EmployeeOnboarding = ({ onEmployeeCreated }) => {
     }
     
     // Simple phone validation
-    const phoneRegex = /^[\+]?[0-9]{8,15}$/;
+    const phoneRegex = /^\+?[0-9]{8,15}$/;
     if (!phoneRegex.test(phone)) {
       setError('Please enter a valid phone number');
       return;
@@ -58,11 +59,10 @@ const EmployeeOnboarding = ({ onEmployeeCreated }) => {
       setLoading(true);
       
       // Make API call to backend (Admin creates employee)
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/employees`, {
+      const data = await apiRequest('/employees', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           name,
@@ -73,8 +73,6 @@ const EmployeeOnboarding = ({ onEmployeeCreated }) => {
           department
         })
       });
-      
-      const data = await response.json();
       
       if (data.success) {
         setSuccess('Employee account created successfully! They will receive login instructions.');

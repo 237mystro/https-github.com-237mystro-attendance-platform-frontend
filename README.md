@@ -1,70 +1,57 @@
-# Getting Started with Create React App
+# Autopay Frontend
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Autopay is a React frontend for employee management, attendance check-in, scheduling, payroll, settings, profiles, and messaging.
 
-## Available Scripts
+## Requirements
 
-In the project directory, you can run:
+- Node.js 18 or newer
+- npm
+- A running Autopay backend API
 
-### `npm start`
+## Environment
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+Create a `.env` file in the project root:
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+```env
+REACT_APP_API_URL=https://autopay-backend.onrender.com/api/v1
+REACT_APP_FRONTEND_URL=https://Autopay.vercel.app
+REACT_APP_SOCKET_URL=https://autopay-backend.onrender.com
+REACT_APP_OFFICE_LATITUDE=4.1025
+REACT_APP_OFFICE_LONGITUDE=9.3908
+REACT_APP_VERIFICATION_RADIUS=20
+```
 
-### `npm test`
+`REACT_APP_SOCKET_URL` is optional. If it is not set, the app derives the socket URL from `REACT_APP_API_URL` by removing `/api/v1`.
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+## Scripts
 
-### `npm run build`
+```bash
+npm start
+```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+Runs the development server at `http://localhost:3000`.
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+```bash
+npm run build
+```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+Creates a production build in `build/`.
 
-### `npm run eject`
+```bash
+npm test
+```
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+Runs the Create React App test runner.
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+## Main Areas
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+- Admin dashboard for employees, attendance, scheduling, payroll, settings, profile, and messaging.
+- Employee dashboard for check-in, schedule, payments, settings, profile, and messaging.
+- QR check-in with browser camera access and location verification.
+- Socket.IO messaging with unread-count polling as a fallback.
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+## Notes
 
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+- Auth session data is stored in browser localStorage and guarded client-side before protected routes render. The backend should still enforce authorization for every protected API endpoint.
+- Office coordinates and verification radius are configurable through environment variables.
+- Camera and geolocation features require browser permissions and HTTPS in production.

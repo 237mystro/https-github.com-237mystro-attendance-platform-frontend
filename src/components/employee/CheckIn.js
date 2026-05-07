@@ -12,7 +12,7 @@ import { QrCodeScanner, LocationOn, Warning } from '@mui/icons-material';
 
 const CheckIn = () => {
   const [scanning, setScanning] = useState(false);
-  const [locationValid, setLocationValid] = useState(true);
+  const [locationValid] = useState(true);
   const [checkInStatus, setCheckInStatus] = useState(null); // null, 'success', 'error'
 
   const handleScan = () => {

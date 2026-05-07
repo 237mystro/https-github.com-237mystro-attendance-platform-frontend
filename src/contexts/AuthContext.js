@@ -1,5 +1,6 @@
-// src/contexts/AuthContext.js (fixed version)
 import React, { useContext, useState, useEffect } from 'react';
+import { apiRequest } from '../utils/api';
+import { clearSession, getSession, storeSession } from '../utils/authSession';
 
 const AuthContext = React.createContext();
 
@@ -13,92 +14,65 @@ export function AuthProvider({ children }) {
 
   // Check if user is already logged in
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const user = localStorage.getItem('user');
-    
-    if (token && user) {
-      try {
-        // Fixed: Check if user is valid JSON before parsing
-        const parsedUser = JSON.parse(user);
-        setCurrentUser(parsedUser);
-      } catch (error) {
-        console.error('Error parsing user data from localStorage:', error);
-        // If parsing fails, clear the invalid data
-        localStorage.removeItem('user');
-        localStorage.removeItem('token');
-      }
-    }
-    
+    const session = getSession();
+    setCurrentUser(session?.user || null);
     setLoading(false);
   }, []);
 
-  function signup(email, password, name, company, role) {
-    return new Promise((resolve, reject) => {
-      // This should make an actual API call
-      setTimeout(() => {
-        // Simulate API error for empty fields
-        if (!email || !password || !name || !company) {
-          reject(new Error('All fields are required'));
-          return;
-        }
-        
-        const user = { email, name, company, role };
-        setCurrentUser(user);
-        localStorage.setItem('user', JSON.stringify(user));
-        resolve();
-      }, 1000);
+  const setSession = (token, user) => {
+    storeSession(token, user);
+    setCurrentUser(user);
+  };
+
+  async function signup(email, password, name, company, role = 'admin') {
+    const data = await apiRequest('/auth/register-business', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      auth: false,
+      body: JSON.stringify({ email, password, name, company, role })
     });
+
+    setSession(data.token, data.user);
+    return data;
   }
 
-  function login(email, password) {
-    return new Promise((resolve, reject) => {
-      // This should make an actual API call
-      setTimeout(() => {
-        // Simulate API error for empty fields
-        if (!email || !password) {
-          reject(new Error('Email and password are required'));
-          return;
-        }
-        
-        const user = { email, name: 'Admin User', company: 'ABC Corp', role: 'admin' };
-        setCurrentUser(user);
-        localStorage.setItem('user', JSON.stringify(user));
-        resolve();
-      }, 1000);
+  async function login(email, password) {
+    const data = await apiRequest('/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      auth: false,
+      body: JSON.stringify({ email, password })
     });
+
+    setSession(data.token, data.user);
+    return data;
   }
 
-  function onboardEmployee(email, name, phone, momoNumber, position) {
-    return new Promise((resolve, reject) => {
-      // This should make an actual API call
-      setTimeout(() => {
-        // Simulate API error for empty fields
-        if (!email || !name || !phone || !momoNumber || !position) {
-          reject(new Error('All fields are required'));
-          return;
-        }
-        
-        const user = { email, name, phone, momoNumber, position, role: 'employee' };
-        setCurrentUser(user);
-        localStorage.setItem('user', JSON.stringify(user));
-        resolve();
-      }, 1000);
+  async function onboardEmployee(email, name, phone, momoNumber, position) {
+    const data = await apiRequest('/employees', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ email, name, phone, momoNumber, position })
     });
+
+    return data;
   }
 
   function logout() {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        setCurrentUser(null);
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        resolve();
-      }, 500);
-    });
+    clearSession();
+    setCurrentUser(null);
+    return Promise.resolve();
   }
 
   const value = {
     currentUser,
+    setSession,
     login,
     signup,
     logout,

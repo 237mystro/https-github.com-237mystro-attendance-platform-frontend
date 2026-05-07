@@ -1,12 +1,11 @@
-// src/utils/locationVerification.js 
-export const BUEA_COORDINATES = {
-  latitude: 4.1025,   // Approximate latitude for 47WP+W6J, Buea
-  longitude: 9.3908   // Approximate longitude for 47WP+W6J, Buea
+export const OFFICE_COORDINATES = {
+  latitude: parseFloat(process.env.REACT_APP_OFFICE_LATITUDE) || 4.1025,
+  longitude: parseFloat(process.env.REACT_APP_OFFICE_LONGITUDE) || 9.3908
 };
 
-export const VERIFICATION_RADIUS = 20; // meters
+export const BUEA_COORDINATES = OFFICE_COORDINATES;
+export const VERIFICATION_RADIUS = parseInt(process.env.REACT_APP_VERIFICATION_RADIUS, 10) || 20;
 
-// Get user's current location
 export const getUserLocation = () => {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
@@ -24,6 +23,7 @@ export const getUserLocation = () => {
       },
       (error) => {
         let errorMessage = '';
+
         switch (error.code) {
           case error.PERMISSION_DENIED:
             errorMessage = 'Location access denied. Please enable location services.';
@@ -38,54 +38,54 @@ export const getUserLocation = () => {
             errorMessage = 'An unknown error occurred while retrieving location.';
             break;
         }
+
         reject(new Error(errorMessage));
       },
       {
         enableHighAccuracy: true,
         timeout: 15000,
-        maximumAge: 60000
+        maximumAge: 0
       }
     );
   });
 };
 
-// Calculate distance between two coordinates using Haversine formula
 export const calculateDistance = (coords1, coords2) => {
   const toRad = (value) => (value * Math.PI) / 180;
-  
-  const R = 6371e3; // Earth radius in meters
-  const φ1 = toRad(coords1.latitude);
-  const φ2 = toRad(coords2.latitude);
-  const Δφ = toRad(coords2.latitude - coords1.latitude);
-  const Δλ = toRad(coords2.longitude - coords1.longitude);
+  const earthRadiusMeters = 6371e3;
+  const lat1 = toRad(coords1.latitude);
+  const lat2 = toRad(coords2.latitude);
+  const deltaLat = toRad(coords2.latitude - coords1.latitude);
+  const deltaLng = toRad(coords2.longitude - coords1.longitude);
 
-  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-            Math.cos(φ1) * Math.cos(φ2) *
-            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const a =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) *
+    Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-  return R * c; // Distance in meters
+  return earthRadiusMeters * c;
 };
 
-// Verify if user is within allowed radius
 export const verifyLocation = (userCoords) => {
-  const distance = calculateDistance(userCoords, BUEA_COORDINATES);
-  
+  const distance = calculateDistance(userCoords, OFFICE_COORDINATES);
+
   return {
     isWithinRadius: distance <= VERIFICATION_RADIUS,
-    distance: distance,
+    distance,
     maxDistance: VERIFICATION_RADIUS,
     allowed: distance <= VERIFICATION_RADIUS
   };
 };
 
-// Format distance for display
 export const formatDistance = (distance) => {
   if (distance < 1) {
     return `${Math.round(distance * 100)} cm`;
-  } else if (distance < 1000) {
-    return `${Math.round(distance)} m`;
-  } else {
-    return `${(distance / 1000).toFixed(2)} km`;
   }
+
+  if (distance < 1000) {
+    return `${Math.round(distance)} m`;
+  }
+
+  return `${(distance / 1000).toFixed(2)} km`;
 };

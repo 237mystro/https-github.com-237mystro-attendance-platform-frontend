@@ -38,6 +38,7 @@ import {
   ExitToApp
 } from '@mui/icons-material';
 import { useSocket } from '../../contexts/SocketContext';
+import { clearSession, getStoredUser } from '../../utils/authSession';
 
 const drawerWidth = 240;
 
@@ -72,8 +73,7 @@ const AdminDashboard = ({ toggleDarkMode, darkMode }) => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    clearSession();
     navigate('/login');
     handleClose();
   };
@@ -151,7 +151,7 @@ const AdminDashboard = ({ toggleDarkMode, darkMode }) => {
             color="inherit"
           >
             <Avatar sx={{ width: 32, height: 32 }}>
-              {JSON.parse(localStorage.getItem('user'))?.name?.charAt(0) || 'A'}
+              {getStoredUser()?.name?.charAt(0) || 'A'}
             </Avatar>
           </IconButton>
           

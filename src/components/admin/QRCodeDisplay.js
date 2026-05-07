@@ -7,8 +7,7 @@ import {
   Button, 
   Box, 
   CircularProgress,
-  Alert,
-  Chip
+  Alert
 } from '@mui/material';
 import { Refresh } from '@mui/icons-material';
 import { QRCodeCanvas } from 'qrcode.react';

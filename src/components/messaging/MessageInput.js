@@ -4,7 +4,6 @@ import {
   Box,
   TextField,
   IconButton,
-  Button,
   Chip,
   Avatar,
   Typography,
@@ -111,7 +110,7 @@ const MessageInput = ({ onSendMessage, disabled = false, receiverId }) => {
   };
 
   return (
-    <Box sx={{ p: 2, borderTop: '1px solid #e0e0e0' }}>
+    <Box sx={{ p: 1.5, borderTop: '1px solid #dde3ed', bgcolor: 'white' }}>
       {/* Error Alert */}
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       
@@ -173,16 +172,16 @@ const MessageInput = ({ onSendMessage, disabled = false, receiverId }) => {
           fullWidth
           multiline
           maxRows={4}
-          placeholder="Type a message..."
+          placeholder="Type a message…"
           value={message}
           onChange={handleTyping}
           onKeyDown={handleKeyPress}
           disabled={disabled || sending}
           sx={{ mx: 1 }}
+          inputProps={{ maxLength: 2000 }}
+          helperText={message.length > 1800 ? `${message.length} / 2,000` : ''}
           InputProps={{
-            sx: {
-              borderRadius: 2
-            }
+            sx: { borderRadius: 3, bgcolor: '#f5f7fb', '& fieldset': { borderColor: '#dde3ed' } }
           }}
         />
         

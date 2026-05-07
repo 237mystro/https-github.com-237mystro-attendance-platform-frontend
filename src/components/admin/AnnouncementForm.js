@@ -22,6 +22,7 @@ import {
   Send,
   VideoFile
 } from '@mui/icons-material';
+import { API_BASE_URL } from '../../utils/api';
 
 const ACCEPTED = [
   'image/*',
@@ -120,11 +121,10 @@ const AnnouncementForm = () => {
       attachments.forEach(({ file }) => formData.append('files', file));
 
       const token = (await import('../../utils/authSession')).getStoredToken();
-      const apiBase = process.env.REACT_APP_API_URL || 'http://localhost:5000/api/v1';
 
       const data = await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', `${apiBase}/messages/announcement`);
+        xhr.open('POST', `${API_BASE_URL}/messages/announcement`);
         if (token) {
           xhr.setRequestHeader('Authorization', `Bearer ${token}`);
         }

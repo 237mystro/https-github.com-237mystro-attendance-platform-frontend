@@ -13,9 +13,9 @@ Autopay is a React frontend for employee management, attendance check-in, schedu
 Create a `.env` file in the project root:
 
 ```env
-REACT_APP_API_URL=https://autopay-backend.onrender.com/api/v1
-REACT_APP_FRONTEND_URL=https://Autopay.vercel.app
-REACT_APP_SOCKET_URL=https://autopay-backend.onrender.com
+REACT_APP_API_URL=https://attendance-platform-backend.onrender.com/api/v1
+REACT_APP_FRONTEND_URL=https://autopay-mu.vercel.app
+REACT_APP_SOCKET_URL=https://attendance-platform-backend.onrender.com
 REACT_APP_OFFICE_LATITUDE=4.1025
 REACT_APP_OFFICE_LONGITUDE=9.3908
 REACT_APP_VERIFICATION_RADIUS=20
